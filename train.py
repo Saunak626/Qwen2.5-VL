@@ -1,6 +1,9 @@
-import torch
 import os
 
+# 设置使用特定GPU (必须在导入torch之前设置)
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"  # 指定使用GPU 3
+
+import torch
 from datasets import Dataset
 from modelscope import snapshot_download, AutoTokenizer
 from swanlab.integration.transformers import SwanLabCallback
@@ -15,9 +18,6 @@ from transformers import (
 )
 import swanlab
 import json
-
-# 设置使用特定GPU
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"  # 指定使用GPU 3
 
 # 显示GPU信息
 print(f"使用GPU: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
@@ -53,20 +53,28 @@ def process_func(example):
             ],
         }
     ]
+    
+    # 处理文本的processor
     text = processor.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
     )  # 获取文本
+    
+    
     image_inputs, video_inputs = process_vision_info(messages)  # 获取数据数据（预处理过）
     inputs = processor(
         text=[text],
         images=image_inputs,
         videos=video_inputs,
-        padding=True,
+        padding=True,  # 补足或截取数据长度到一致
         return_tensors="pt",
     )
-    inputs = {key: value.tolist() for key, value in inputs.items()} #tensor -> list,为了方便拼接
-    instruction = inputs
-
+    
+    # inputs tensor -> list,为了方便拼接
+    inputs = {key: value.tolist() for key, value in inputs.items()} 
+    
+    # 提示的部分
+    instruction = inputs 
+    # 回答的部分
     response = tokenizer(f"{output_content}", add_special_tokens=False)
 
     input_ids = (
@@ -140,7 +148,7 @@ def predict(messages, model):
 tokenizer = AutoTokenizer.from_pretrained("/home/swq/Code/Qwen/models/Qwen/Qwen2.5-VL-7B-Instruct/", use_fast=False, trust_remote_code=True)
 processor = AutoProcessor.from_pretrained("/home/swq/Code/Qwen/models/Qwen/Qwen2.5-VL-7B-Instruct")
 
-model = Qwen2_5_VLForConditionalGeneration.from_pretrained("/home/swq/Code/Qwen/models/Qwen/Qwen2.5-VL-7B-Instruct/", device_map={"": 0}, torch_dtype=torch.float32, trust_remote_code=True,)
+model = Qwen2_5_VLForConditionalGeneration.from_pretrained("/home/swq/Code/Qwen/models/Qwen/Qwen2.5-VL-7B-Instruct/", device_map="auto", torch_dtype=torch.float32, trust_remote_code=True,)
 model.enable_input_require_grads()  # 开启梯度检查点时，要执行该方法
 
 # 处理数据集：读取json文件

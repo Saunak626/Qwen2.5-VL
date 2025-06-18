@@ -3,7 +3,7 @@ from modelscope.msdatasets import MsDataset
 import os
 import pandas as pd
 
-MAX_DATA_NUMBER = 500
+MAX_DATA_NUMBER = 1000
 
 # 检查目录是否已存在
 if not os.path.exists('coco_2014_caption'):
