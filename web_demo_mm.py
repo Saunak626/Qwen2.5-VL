@@ -3,6 +3,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os
 import copy
 import re
 from argparse import ArgumentParser
@@ -13,8 +14,10 @@ import torch
 from qwen_vl_utils import process_vision_info
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration, TextIteratorStreamer
 
-DEFAULT_CKPT_PATH = 'Qwen/Qwen2.5-VL-7B-Instruct'
+# GPU设置将在main函数中根据命令行参数动态设置
 
+# DEFAULT_CKPT_PATH = 'Qwen/Qwen2.5-VL-7B-Instruct'
+DEFAULT_CKPT_PATH = "/home/swq/Code/Qwen/models/Qwen/Qwen2.5-VL-7B-Instruct"
 
 def _get_args():
     parser = ArgumentParser()
@@ -40,6 +43,7 @@ def _get_args():
                         help='Automatically launch the interface in a new tab on the default browser.')
     parser.add_argument('--server-port', type=int, default=7860, help='Demo server port.')
     parser.add_argument('--server-name', type=str, default='127.0.0.1', help='Demo server name.')
+    parser.add_argument('--gpu-id', type=str, default='2', help='指定使用的GPU ID (例如: 0,1,2 或 auto)')
 
     args = parser.parse_args()
     return args
@@ -49,16 +53,24 @@ def _load_model_processor(args):
     if args.cpu_only:
         device_map = 'cpu'
     else:
-        device_map = 'auto'
-
+        # 根据gpu_id参数设置device_map
+        if args.gpu_id == 'auto':
+            device_map = 'auto'
+        else:
+            # 如果指定了具体的GPU ID，使用第一个可见的GPU
+            device_map = 'cuda:0'
+        
+        
     # Check if flash-attn2 flag is enabled and load model accordingly
     if args.flash_attn2:
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(args.checkpoint_path,
-                                                                torch_dtype='auto',
+                                                                torch_dtype=torch.bfloat16,
                                                                 attn_implementation='flash_attention_2',
                                                                 device_map=device_map)
     else:
-        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(args.checkpoint_path, device_map=device_map)
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(args.checkpoint_path, 
+                                                                torch_dtype=torch.bfloat16,
+                                                                device_map=device_map)
 
     processor = AutoProcessor.from_pretrained(args.checkpoint_path)
     return model, processor
@@ -289,6 +301,14 @@ including hate speech, violence, pornography, deception, etc. \
 
 def main():
     args = _get_args()
+    
+    # 根据命令行参数设置GPU
+    if args.gpu_id != 'auto' and not args.cpu_only:
+        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
+        print(f"设置使用GPU: {args.gpu_id}")
+    elif args.gpu_id == 'auto':
+        print("使用自动GPU分配")
+    
     model, processor = _load_model_processor(args)
     _launch_demo(args, model, processor)
 
