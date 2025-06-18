@@ -24,7 +24,7 @@ if not os.path.exists('coco_2014_caption'):
         # 获取每个样本的信息
         item = ds[i]
         image_id = item['image_id']
-        caption = item['caption']
+        caption = item['caption'] # 图片的描述
         image = item['image']
         
         # 保存图片并记录路径

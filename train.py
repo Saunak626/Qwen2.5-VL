@@ -1,20 +1,7 @@
 import torch
 import os
+
 from datasets import Dataset
-
-# 设置使用特定GPU
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"  # 指定使用GPU 3
-
-# 显示GPU信息
-print(f"使用GPU: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
-print(f"CUDA可用: {torch.cuda.is_available()}")
-if torch.cuda.is_available():
-    print(f"GPU数量: {torch.cuda.device_count()}")
-    for i in range(torch.cuda.device_count()):
-        print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
-        total_memory = torch.cuda.get_device_properties(i).total_memory / 1024**3
-        print(f"  总显存: {total_memory:.1f} GB")
-
 from modelscope import snapshot_download, AutoTokenizer
 from swanlab.integration.transformers import SwanLabCallback
 from qwen_vl_utils import process_vision_info
@@ -29,17 +16,29 @@ from transformers import (
 import swanlab
 import json
 
+# 设置使用特定GPU
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"  # 指定使用GPU 3
+
+# 显示GPU信息
+print(f"使用GPU: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+print(f"CUDA可用: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"GPU数量: {torch.cuda.device_count()}")
+    for i in range(torch.cuda.device_count()):
+        print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
+        total_memory = torch.cuda.get_device_properties(i).total_memory / 1024**3
+        print(f"  总显存: {total_memory:.1f} GB")
 
 def process_func(example):
     """
-    将数据集进行预处理
+    对每一条数据进行预处理
     """
     MAX_LENGTH = 8192
     input_ids, attention_mask, labels = [], [], []
     conversation = example["conversations"]
     input_content = conversation[0]["value"]
     output_content = conversation[1]["value"]
-    file_path = input_content.split("<|vision_start|>")[1].split("<|vision_end|>")[0]  # 获取图像路径
+    file_path = input_content.split("<|vision_start|>")[1].split("<|vision_end|>")[0]  # 截取图像路径
     messages = [
         {
             "role": "user",
@@ -145,14 +144,14 @@ model = Qwen2_5_VLForConditionalGeneration.from_pretrained("/home/swq/Code/Qwen/
 model.enable_input_require_grads()  # 开启梯度检查点时，要执行该方法
 
 # 处理数据集：读取json文件
-# 拆分成训练集和测试集，保存为data_vl_train.json和data_vl_test.json
+# 拆分成训练集和测试集
 train_json_path = "data_vl.json"
 with open(train_json_path, 'r') as f:
     data = json.load(f)
     train_data = data[:-12]
     test_data = data[-12:]
 
-
+# 保存为data_vl_train.json和data_vl_test.json
 with open("data_vl_train.json", "w") as f:
     json.dump(train_data, f)
 

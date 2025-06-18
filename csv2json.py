@@ -3,6 +3,8 @@ import json
 
 # 载入CSV文件
 df = pd.read_csv('./coco-2024-dataset.csv')
+
+# 创建一个空的列表来存储对话数据
 conversations = []
 
 # 添加对话数据
