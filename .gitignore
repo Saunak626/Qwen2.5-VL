@@ -6,6 +6,7 @@ dist/
 wheels/
 models/
 coco_2014_caption/
+output/
 
 *.egg-info
 

@@ -1,5 +1,20 @@
 import torch
+import os
 from datasets import Dataset
+
+# 设置使用特定GPU
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"  # 指定使用GPU 3
+
+# 显示GPU信息
+print(f"使用GPU: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+print(f"CUDA可用: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"GPU数量: {torch.cuda.device_count()}")
+    for i in range(torch.cuda.device_count()):
+        print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
+        total_memory = torch.cuda.get_device_properties(i).total_memory / 1024**3
+        print(f"  总显存: {total_memory:.1f} GB")
+
 from modelscope import snapshot_download, AutoTokenizer
 from swanlab.integration.transformers import SwanLabCallback
 from qwen_vl_utils import process_vision_info
@@ -55,26 +70,25 @@ def process_func(example):
 
     response = tokenizer(f"{output_content}", add_special_tokens=False)
 
-
     input_ids = (
-            instruction["input_ids"][0] + response["input_ids"] + [tokenizer.pad_token_id]
+            instruction["input_ids"][0] + response["input_ids"] + [tokenizer.eos_token_id]
     )
 
     attention_mask = instruction["attention_mask"][0] + response["attention_mask"] + [1]
     labels = (
             [-100] * len(instruction["input_ids"][0])
             + response["input_ids"]
-            + [tokenizer.pad_token_id]
+            + [tokenizer.eos_token_id]
     )
     if len(input_ids) > MAX_LENGTH:  # 做一个截断
         input_ids = input_ids[:MAX_LENGTH]
         attention_mask = attention_mask[:MAX_LENGTH]
         labels = labels[:MAX_LENGTH]
 
-    input_ids = torch.tensor(input_ids)
-    attention_mask = torch.tensor(attention_mask)
-    labels = torch.tensor(labels)
-    inputs['pixel_values'] = torch.tensor(inputs['pixel_values'])
+    input_ids = torch.tensor(input_ids, dtype=torch.long)
+    attention_mask = torch.tensor(attention_mask, dtype=torch.long)
+    labels = torch.tensor(labels, dtype=torch.long)
+    inputs['pixel_values'] = torch.tensor(inputs['pixel_values'], dtype=torch.float32)
     inputs['image_grid_thw'] = torch.tensor(inputs['image_grid_thw']).squeeze(0)  #由（1,h,w)变换为（h,w）
     return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels,
             "pixel_values": inputs['pixel_values'], "image_grid_thw": inputs['image_grid_thw']}
@@ -96,7 +110,21 @@ def predict(messages, model):
     inputs = inputs.to("cuda")
 
     # 生成输出
-    generated_ids = model.generate(**inputs, max_new_tokens=128)
+    with torch.no_grad():
+        try:
+            generated_ids = model.generate(
+                **inputs, 
+                max_new_tokens=128,
+                do_sample=False,  # 改为贪心解码避免采样问题
+                temperature=1.0,
+                top_p=1.0,
+                pad_token_id=tokenizer.eos_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+                repetition_penalty=1.0
+            )
+        except Exception as e:
+            print(f"生成失败: {e}")
+            return "生成失败"
     generated_ids_trimmed = [
         out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
     ]
@@ -113,7 +141,7 @@ def predict(messages, model):
 tokenizer = AutoTokenizer.from_pretrained("/home/swq/Code/Qwen/models/Qwen/Qwen2.5-VL-7B-Instruct/", use_fast=False, trust_remote_code=True)
 processor = AutoProcessor.from_pretrained("/home/swq/Code/Qwen/models/Qwen/Qwen2.5-VL-7B-Instruct")
 
-model = Qwen2_5_VLForConditionalGeneration.from_pretrained("/home/swq/Code/Qwen/models/Qwen/Qwen2.5-VL-7B-Instruct/", device_map="auto", torch_dtype=torch.bfloat16, trust_remote_code=True,)
+model = Qwen2_5_VLForConditionalGeneration.from_pretrained("/home/swq/Code/Qwen/models/Qwen/Qwen2.5-VL-7B-Instruct/", device_map={"": 0}, torch_dtype=torch.float32, trust_remote_code=True,)
 model.enable_input_require_grads()  # 开启梯度检查点时，要执行该方法
 
 # 处理数据集：读取json文件
@@ -151,16 +179,20 @@ peft_model = get_peft_model(model, config)
 # 配置训练参数
 args = TrainingArguments(
     output_dir="./output/Qwen2.5-VL-7B",
-    per_device_train_batch_size=4,
-    gradient_accumulation_steps=4,
+    per_device_train_batch_size=2,  # 减小batch size避免内存问题
+    gradient_accumulation_steps=8,  # 增加梯度累积步数保持总batch size
     logging_steps=10,
     logging_first_step=5,
     num_train_epochs=2,
     save_steps=100,
-    learning_rate=1e-4,
+    learning_rate=5e-5,  # 降低学习率提升训练稳定性
     save_on_each_node=True,
     gradient_checkpointing=True,
     report_to="none",
+    max_grad_norm=1.0,  # 添加梯度裁剪
+    warmup_steps=10,  # 添加warmup步数
+    fp16=False,  # 禁用fp16避免数值不稳定
+    dataloader_pin_memory=False,  # 禁用pin_memory避免CUDA内存问题
 )
         
 # 设置SwanLab回调
@@ -204,7 +236,15 @@ val_config = LoraConfig(
 )
 
 # 获取测试模型
-val_peft_model = PeftModel.from_pretrained(model, model_id="./output/Qwen2.5-VL-7B/checkpoint-62", config=val_config)
+import glob
+checkpoint_dirs = glob.glob("./output/Qwen2.5-VL-7B/checkpoint-*")
+if checkpoint_dirs:
+    latest_checkpoint = max(checkpoint_dirs, key=lambda x: int(x.split('-')[-1]))
+    print(f"使用最新checkpoint: {latest_checkpoint}")
+    val_peft_model = PeftModel.from_pretrained(model, model_id=latest_checkpoint, config=val_config)
+else:
+    print("未找到checkpoint，跳过测试")
+    exit()
 
 # 读取测试数据
 with open("data_vl_test.json", "r") as f:
