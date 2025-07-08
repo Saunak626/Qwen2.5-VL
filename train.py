@@ -222,14 +222,14 @@ def predict(messages, model):
         try:
             # 调用模型的 generate 方法生成文本
             generated_ids = model.generate(
-                **inputs,                                        # 解包输入数据
-                max_new_tokens=128,                              # 最大生成token数量
-                do_sample=False,                                 # 使用贪心解码，避免随机采样的数值问题
-                temperature=1.0,                                 # 温度参数（贪心解码时不起作用）
-                top_p=1.0,                                       # top-p 采样参数（贪心解码时不起作用）
-                pad_token_id=tokenizer.eos_token_id,             # 填充token ID
-                eos_token_id=tokenizer.eos_token_id,             # 结束token ID
-                repetition_penalty=1.0                          # 重复惩罚系数
+                **inputs,                               # 解包输入数据
+                max_new_tokens=128,                     # 最大生成token数量
+                do_sample=False,                        # 使用贪心解码，避免随机采样的数值问题
+                temperature=1.0,                        # 温度参数（贪心解码时不起作用）
+                top_p=1.0,                              # top-p 采样参数（贪心解码时不起作用）
+                pad_token_id=tokenizer.eos_token_id,    # 填充token ID
+                eos_token_id=tokenizer.eos_token_id,    # 结束token ID
+                repetition_penalty=1.0                  # 重复惩罚系数
             )
         except Exception as e:
             # 处理生成过程中的异常（如CUDA内存不足、数值溢出等）
@@ -237,16 +237,17 @@ def predict(messages, model):
             return "生成失败"
     
     # 提取新生成的token（去除输入部分）
-    # generated_ids 包含输入+输出，需要去除输入部分只保留新生成的内容
+    # generated_ids 包含输入+输出，
+    # 切片out_ids[len(in_ids) :]去除输入序列 (in_ids) 长度的前缀，只保留新生成的部分
     generated_ids_trimmed = [
         out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
     ]
     
     # 将生成的token ID解码为文本
     output_text = processor.batch_decode(
-        generated_ids_trimmed,                                   # 新生成的token IDs
-        skip_special_tokens=True,                                # 跳过特殊token（如[PAD], [EOS]等）
-        clean_up_tokenization_spaces=False                      # 不清理分词空格
+        generated_ids_trimmed,                    # 新生成的token IDs
+        skip_special_tokens=True,                 # 跳过特殊token（如[PAD], [EOS]等）
+        clean_up_tokenization_spaces=False        # 不清理分词空格
     )
     
     # 返回生成的文本（取第一个，因为batch_size=1）
@@ -273,9 +274,9 @@ processor = AutoProcessor.from_pretrained("/home/swq/Code/Qwen/models/Qwen/Qwen2
 # Qwen2_5_VLForConditionalGeneration 是条件生成模型，根据给定条件生成文本
 model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
     "/home/swq/Code/Qwen/models/Qwen/Qwen2.5-VL-7B-Instruct/", 
-    device_map="auto",                                           # 自动分配到可用GPU（受CUDA_VISIBLE_DEVICES限制）
-    torch_dtype=torch.float32,                                  # 使用FP32精度，避免数值不稳定问题
-    trust_remote_code=True,                                     # 信任远程代码
+    device_map="auto",                  # 自动分配到可用GPU（受CUDA_VISIBLE_DEVICES限制）
+    torch_dtype=torch.float32,          # 使用FP32精度，避免数值不稳定问题
+    trust_remote_code=True,             # 信任远程代码
 )
 
 # 启用输入梯度计算
@@ -286,12 +287,12 @@ model.enable_input_require_grads()
 # 读取并预处理训练数据集
 # 数据集格式：JSON文件，每条记录包含对话形式的图像描述任务
 
-train_json_path = "data_vl.json"                                 # 原始数据文件路径
+train_json_path = "data_vl.json"                   # 原始数据文件路径
 with open(train_json_path, 'r') as f:
-    data = json.load(f)                                          # 加载JSON数据
+    data = json.load(f)                            # 加载JSON数据
     # 数据集划分：最后12条作为测试集，其余作为训练集
-    train_data = data[:-12]                                      # 训练数据（除最后12条外的所有数据）
-    test_data = data[-12:]                                       # 测试数据（最后12条）
+    train_data = data[:-12]                        # 训练数据（除最后12条外的所有数据）
+    test_data = data[-12:]                         # 测试数据（最后12条）
 
 # 将划分后的数据保存为独立文件，便于后续加载和管理
 with open("data_vl_train.json", "w") as f:
@@ -315,16 +316,16 @@ train_dataset = train_ds.map(process_func)
 # 相比全参数微调，LoRA 显著减少了训练参数量和显存需求
 
 config = LoraConfig(
-    task_type=TaskType.CAUSAL_LM,                   # 任务类型：因果语言模型（自回归生成）
-    target_modules=[                                # 目标模块：指定要应用LoRA的模型层
-        "q_proj", "k_proj", "v_proj", "o_proj",     # 注意力机制的查询、键、值、输出投影层
-        "gate_proj", "up_proj", "down_proj"         # 前馈网络的门控、上升、下降投影层
+    task_type=TaskType.CAUSAL_LM,                # 任务类型：因果语言模型（自回归生成）
+    target_modules=[                             # 目标模块：指定要应用LoRA的模型层
+        "q_proj", "k_proj", "v_proj", "o_proj",  # 注意力机制的查询、键、值、输出投影层
+        "gate_proj", "up_proj", "down_proj"      # 前馈网络的门控、上升、下降投影层
     ],
-    inference_mode=False,                           # 训练模式（非推理模式）
-    r=64,                                           # LoRA秩：低秩矩阵的维度，影响参数量和表达能力
-    lora_alpha=16,                                  # LoRA缩放参数：控制LoRA输出的缩放强度
-    lora_dropout=0.05,                              # LoRA层的Dropout比例，防止过拟合
-    bias="none",                                    # 偏置参数处理方式：不训练偏置参数
+    inference_mode=False,                        # 训练模式（非推理模式）
+    r=64,                                        # LoRA秩：低秩矩阵的维度，影响参数量和表达能力
+    lora_alpha=16,                               # LoRA缩放参数：控制LoRA输出的缩放强度
+    lora_dropout=0.05,                           # LoRA层的Dropout比例，防止过拟合
+    bias="none",                                 # 偏置参数处理方式：不训练偏置参数
 )
 
 # 将LoRA配置应用到原始模型，创建PEFT模型
@@ -336,33 +337,33 @@ peft_model = get_peft_model(model, config)
 # 这些参数对训练效果和稳定性有重要影响
 
 args = TrainingArguments(
-    output_dir="./output/Qwen2.5-VL-7B",                         # 模型检查点和日志的保存目录
+    output_dir="./output/Qwen2.5-VL-7B",         # 模型检查点和日志的保存目录
     
     # 批次大小和梯度累积设置
-    per_device_train_batch_size=2,                               # 每个GPU上的训练批次大小（减小以节省显存）
-    gradient_accumulation_steps=8,                               # 梯度累积步数（实际批次大小 = 2*8 = 16）
+    per_device_train_batch_size=2,               # 每个GPU上的训练批次大小（减小以节省显存）
+    gradient_accumulation_steps=8,               # 梯度累积步数（实际批次大小 = 2*8 = 16）
     
     # 日志记录设置
-    logging_steps=10,                                            # 每10步记录一次训练日志
-    logging_first_step=5,                                        # 第5步开始记录日志
+    logging_steps=10,                            # 每10步记录一次训练日志
+    logging_first_step=5,                        # 第5步开始记录日志
     
     # 训练轮次和保存设置
-    num_train_epochs=2,                                          # 训练轮数：遍历数据集2次
-    save_steps=100,                                              # 每100步保存一次检查点
-    save_on_each_node=True,                                      # 在每个计算节点上保存检查点
+    num_train_epochs=2,                          # 训练轮数：遍历数据集2次
+    save_steps=100,                              # 每100步保存一次检查点
+    save_on_each_node=True,                      # 在每个计算节点上保存检查点
     
     # 学习率和优化器设置
-    learning_rate=5e-5,                                          # 学习率：较小的值提升训练稳定性
-    warmup_steps=10,                                             # 预热步数：前10步逐渐增加学习率
-    max_grad_norm=1.0,                                           # 梯度裁剪：限制梯度最大范数，防止梯度爆炸
+    learning_rate=5e-5,                          # 学习率：较小的值提升训练稳定性
+    warmup_steps=10,                             # 预热步数：前10步逐渐增加学习率
+    max_grad_norm=1.0,                           # 梯度裁剪：限制梯度最大范数，防止梯度爆炸
     
     # 内存和精度优化
-    gradient_checkpointing=True,                                 # 梯度检查点：用时间换显存，减少内存占用
-    fp16=False,                                                  # 禁用半精度浮点，避免数值不稳定
-    dataloader_pin_memory=False,                                 # 禁用内存锁定，避免CUDA内存问题
+    gradient_checkpointing=True,                 # 梯度检查点：用时间换显存，减少内存占用
+    fp16=False,                                  # 禁用半精度浮点，避免数值不稳定
+    dataloader_pin_memory=False,                 # 禁用内存锁定，避免CUDA内存问题
     
     # 监控和报告设置
-    report_to="none",                                            # 不向外部服务报告（使用SwanLab代替）
+    report_to="none",                            # 不向外部服务报告（使用SwanLab代替）
 )
         
 # ================================ 实验监控配置 ================================
@@ -370,9 +371,9 @@ args = TrainingArguments(
 # 提供损失曲线、学习率变化、梯度分析等可视化功能
 
 swanlab_callback = SwanLabCallback(
-    project="Qwen2.5-VL-finetune",                               # 项目名称：在SwanLab平台上的项目标识
-    experiment_name="qwen2.5-VL-coco2014",                      # 实验名称：当前实验的标识
-    config={                                                     # 实验配置信息，用于记录和比较
+    project="Qwen2.5-VL-finetune",                  # 项目名称：在SwanLab平台上的项目标识
+    experiment_name="qwen2.5-VL-coco2014",          # 实验名称：当前实验的标识
+    config={
         "model": "https://modelscope.cn/models/Qwen/Qwen2.5-VL-7B-Instruct",  # 基础模型链接
         "dataset": "https://modelscope.cn/datasets/modelscope/coco_2014_caption/quickstart",  # 数据集链接
         "github": "https://github.com/datawhalechina/self-llm",  # 代码仓库链接
@@ -380,7 +381,7 @@ swanlab_callback = SwanLabCallback(
         "train_data_number": len(train_data),                    # 训练数据量
         "lora_rank": 64,                                         # LoRA秩参数
         "lora_alpha": 16,                                        # LoRA缩放参数
-        "lora_dropout": 0.1,                                     # LoRA dropout率
+        "lora_dropout": 0.05,                                     # LoRA dropout率
     },
 )
 
@@ -389,14 +390,16 @@ swanlab_callback = SwanLabCallback(
 # 提供了统一的接口来管理整个训练过程
 
 trainer = Trainer(
-    model=peft_model,                                            # 要训练的模型（应用了LoRA的PEFT模型）
-    args=args,                                                   # 训练参数配置
-    train_dataset=train_dataset,                                 # 训练数据集
-    data_collator=DataCollatorForSeq2Seq(                       # 数据整理器：处理批次数据的填充和对齐
-        tokenizer=tokenizer,                                     # 使用的分词器
-        padding=True                                             # 启用填充，将批次中的序列填充到相同长度
+    model=peft_model,                               # 要训练的模型（应用了LoRA的PEFT模型）
+    args=args,                                      # 训练参数配置
+    train_dataset=train_dataset,                    # 训练数据集
+    
+    # 数据整理器：处理批次数据的填充和对齐
+    data_collator=DataCollatorForSeq2Seq(           
+        tokenizer=tokenizer,                        # 使用的分词器
+        padding=True                                # 启用填充，将批次中的序列填充到相同长度
     ),
-    callbacks=[swanlab_callback],                                # 回调函数列表：包含SwanLab监控
+    callbacks=[swanlab_callback],                   # 回调函数列表：包含SwanLab监控
 )
 
 # ================================ 开始训练 ================================
@@ -439,7 +442,7 @@ else:
     print("未找到checkpoint，跳过测试")
     exit()
 
-# ================================ 测试数据推理 ================================
+# =================== 测试数据推理 ====================
 # 在测试集上进行推理，验证模型性能
 
 # 加载测试数据集
@@ -476,12 +479,13 @@ for item in test_dataset:
     
     # 将模型回答添加到对话中
     messages.append({"role": "assistant", "content": f"{response}"})
-    print(messages[-1])                                          # 打印模型回答
+    
+    print(messages[-1])                       # 打印模型最后一条回答
     
     # 为SwanLab创建图像记录，包含图像和生成的描述
     test_image_list.append(swanlab.Image(origin_image_path, caption=response))
 
-# ================================ 结果记录和保存 ================================
+# ================== 结果记录和保存 ================
 # 将测试结果上传到SwanLab平台进行可视化展示
 
 swanlab.log({"Prediction": test_image_list})                    # 上传预测结果图像

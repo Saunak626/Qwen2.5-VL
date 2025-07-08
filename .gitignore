@@ -7,8 +7,14 @@ wheels/
 models/
 coco_2014_caption/
 output/
+Data/
 
+cache/
+saves/
+mllm_data/
 *.egg-info
+*.jpg
+*.png
 
 # venv
 .venv
