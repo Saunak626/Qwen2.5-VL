@@ -15,6 +15,7 @@ mllm_data/
 *.egg-info
 *.jpg
 *.png
+*.pem
 
 # venv
 .venv

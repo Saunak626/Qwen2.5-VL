@@ -21,7 +21,7 @@ from qwen_vl_utils import process_vision_info
 model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
     "/home/swq/Code/Qwen2.5-VL/models/Qwen/Qwen2.5-VL-7B-Instruct",  # 模型本地路径
     torch_dtype=torch.bfloat16,  # 使用bfloat16数据类型以节省显存
-    # attn_implementation="flash_attention_2",  # PyTorch 2.5.0与flash-attn 2.8.0版本兼容性问题
+    attn_implementation="flash_attention_2",
     device_map=device_map,  # 使用指定的GPU设备
     # device_map={"": 1},  # 指定使用GPU 1（取消注释以启用）
     # device_map={"": "cuda:3"},  # 指定使用GPU 3（取消注释以启用）
