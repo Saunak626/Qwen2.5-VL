@@ -19,18 +19,16 @@ Qwen2.5-VL 视觉语言模型 LoRA 微调训练脚本
 
 import os
 
-# ================================ GPU 设备配置 ================================
-# 设置使用特定GPU (必须在导入torch之前设置，否则无效)
-# CUDA_VISIBLE_DEVICES 环境变量告诉 CUDA 运行时只使用指定的物理GPU
-# 设置为 "3" 表示只使用物理编号为3的GPU，在程序中这个GPU会被映射为 cuda:0
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"  # 指定使用GPU 3
+# ================================ GPU 设备配置 ==============================
+# 指定使用的GPU，此设置必须在导入torch前完成
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 # ================================ 导入依赖库 ================================
-import torch                                    # PyTorch 深度学习框架
-from datasets import Dataset                    # HuggingFace datasets 库，用于数据处理
-from modelscope import snapshot_download, AutoTokenizer    # ModelScope 模型下载和分词器
-from swanlab.integration.transformers import SwanLabCallback  # SwanLab 训练监控
-from qwen_vl_utils import process_vision_info   # Qwen-VL 视觉信息处理工具
+import torch                                    
+from datasets import Dataset                                      # HuggingFace datasets 库，用于数据处理
+from modelscope import snapshot_download, AutoTokenizer           # ModelScope 模型下载和分词器
+from swanlab.integration.transformers import SwanLabCallback      # SwanLab 训练监控
+from qwen_vl_utils import process_vision_info                     # Qwen-VL 视觉信息处理工具
 from peft import LoraConfig, TaskType, get_peft_model, PeftModel  # PEFT 库用于 LoRA 微调
 from transformers import (
     TrainingArguments,                          # 训练参数配置
@@ -39,41 +37,30 @@ from transformers import (
     Qwen2_5_VLForConditionalGeneration,         # Qwen2.5-VL 模型
     AutoProcessor,                              # 自动处理器（文本+图像）
 )
-import swanlab                                  # 实验跟踪和可视化
-import json                                     # JSON 数据处理
+import swanlab                           
+import json                                  
 
 # ================================ GPU 信息显示 ================================
-# 验证GPU配置是否正确，显示当前可用的GPU设备信息
-print(f"使用GPU: {os.environ.get('CUDA_VISIBLE_DEVICES')}")  # 显示环境变量设置
-print(f"CUDA可用: {torch.cuda.is_available()}")              # 检查CUDA是否可用
 if torch.cuda.is_available():
-    print(f"GPU数量: {torch.cuda.device_count()}")          # 显示可见GPU数量（应该为1）
-    # 遍历所有可见GPU，显示设备信息和显存容量
+    print(f"使用GPU: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+    print(f"CUDA可用, GPU数量: {torch.cuda.device_count()}")
     for i in range(torch.cuda.device_count()):
-        print(f"GPU {i}: {torch.cuda.get_device_name(i)}")  # GPU名称
         total_memory = torch.cuda.get_device_properties(i).total_memory / 1024**3
-        print(f"  总显存: {total_memory:.1f} GB")            # 显存大小（GB）
+        print(f"  GPU {i}: {torch.cuda.get_device_name(i)}, 总显存: {total_memory:.1f} GB")
+else:
+    print("CUDA 不可用, 将使用 CPU 进行训练。")
 
 # ================================ 数据预处理函数 ================================
 def process_func(example):
     """
-    对训练数据集中的每一条样本进行预处理，转换为模型可以接受的格式
-    
-    处理流程：
-    1. 解析对话数据，提取用户输入（图像+文本）和模型回答
-    2. 构建多模态消息格式（图像+文本提示）
-    3. 使用 processor 处理图像和文本，生成 token
-    4. 将输入和输出拼接，创建训练序列
-    5. 设置标签（labels），其中输入部分设为-100（不计算损失），输出部分计算损失
-    
-    Args:
-        example: 包含 "conversations" 字段的数据样本
-        
-    Returns:
-        dict: 包含 input_ids, attention_mask, labels, pixel_values, image_grid_thw 的训练样本
+    对训练样本进行预处理，转换为模型输入格式。
+    - 解析对话数据，提取图像和文本。
+    - 构建多模态消息，并使用processor转换为token。
+    - 拼接输入和输出，创建训练序列和标签。
     """
+
     MAX_LENGTH = 8192                                        # 最大序列长度限制
-    input_ids, attention_mask, labels = [], [], []          # 初始化返回变量
+    input_ids, attention_mask, labels = [], [], []           # 初始化返回变量
     
     # 解析对话数据结构
     conversation = example["conversations"]                  # 获取对话内容
@@ -87,15 +74,10 @@ def process_func(example):
     # 每个消息包含角色和内容，内容可以是图像和文本的组合
     messages = [
         {
-            "role": "user",                                      # 用户角色
-            "content": [                                         # 内容列表，支持多模态
-                {
-                    "type": "image",                             # 图像类型
-                    "image": f"{file_path}",                     # 图像文件路径
-                    "resized_height": 280,                       # 图像调整后的高度
-                    "resized_width": 280,                        # 图像调整后的宽度
-                },
-                {"type": "text", "text": "COCO Yes:"},           # 文本提示，引导模型生成描述
+            "role": "user",
+            "content": [
+                {"type": "image", "image": f"{file_path}", "resized_height": 280, "resized_width": 280},
+                {"type": "text", "text": "COCO Yes:"},
             ],
         }
     ]
@@ -106,15 +88,14 @@ def process_func(example):
     # add_generation_prompt=True: 添加生成提示符，表示模型应该开始生成回答
     text = processor.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
-    )  # 获取格式化的文本
+    )
     
-    # 处理视觉信息，提取图像和视频数据
+
     # process_vision_info: Qwen-VL 专用函数，处理消息中的图像和视频
-    # 返回预处理后的图像张量和视频张量（如果有）
-    image_inputs, video_inputs = process_vision_info(messages)  # 获取预处理的视觉数据
+    # 返回预处理后的图像张量和视频张量
+    image_inputs, video_inputs = process_vision_info(messages)
     
-    # 使用 processor 同时处理文本和视觉数据
-    # processor 是 AutoProcessor，能够同时处理文本分词和图像编码
+    # 同时处理文本和视觉数据
     inputs = processor(
         text=[text],                                             # 文本数据（列表格式）
         images=image_inputs,                                     # 图像数据
@@ -123,12 +104,10 @@ def process_func(example):
         return_tensors="pt",                                     # 返回 PyTorch 张量格式
     )
     
-    # 将张量转换为列表格式，便于后续的序列拼接操作
-    # 因为需要将输入序列和输出序列拼接成完整的训练序列
-    inputs = {key: value.tolist() for key, value in inputs.items()} 
+    inputs = {key: value.tolist() for key, value in inputs.items()}
     
     # 分离指令部分和回答部分，为损失计算做准备
-    instruction = inputs                                         # 输入指令部分（图像+文本提示）
+    instruction = inputs                                                 # 输入指令部分（图像+文本提示）
     # 对期望的输出内容进行分词，不添加特殊token
     response = tokenizer(f"{output_content}", add_special_tokens=False)  # 目标回答部分
 
@@ -175,10 +154,9 @@ def process_func(example):
         "input_ids": input_ids,                                  # 输入token序列
         "attention_mask": attention_mask,                        # 注意力掩码
         "labels": labels,                                        # 训练标签
-        "pixel_values": inputs['pixel_values'],                 # 图像像素数据
+        "pixel_values": inputs['pixel_values'],                  # 图像像素数据
         "image_grid_thw": inputs['image_grid_thw']               # 图像网格信息
     }
-
 
 # ================================ 推理预测函数 ================================
 def predict(messages, model):
@@ -198,26 +176,19 @@ def predict(messages, model):
     # 使用与训练时相同的方式处理输入消息
     # 将多模态消息转换为模型可以理解的格式
     text = processor.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True     # 添加生成提示，告诉模型开始生成
+        messages, tokenize=False, add_generation_prompt=True
     )
-    
-    # 提取和预处理视觉信息（图像）
     image_inputs, video_inputs = process_vision_info(messages)
-    
-    # 使用 processor 同时处理文本和图像，生成模型输入
     inputs = processor(
-        text=[text],                                             # 文本输入
-        images=image_inputs,                                     # 图像输入
-        videos=video_inputs,                                     # 视频输入（通常为空）
-        padding=True,                                            # 填充序列
-        return_tensors="pt",                                     # 返回 PyTorch 张量
+        text=[text],
+        images=image_inputs,
+        videos=video_inputs,
+        padding=True,
+        return_tensors="pt",
     )
-    
-    # 将输入数据移动到 GPU 设备上进行推理
     inputs = inputs.to("cuda")
 
-    # 使用模型生成回答文本
-    # 禁用梯度计算以节省内存和提高速度（推理时不需要梯度）
+    # 使用模型生成回答
     with torch.no_grad():
         try:
             # 调用模型的 generate 方法生成文本
@@ -261,19 +232,19 @@ def predict(messages, model):
 # 加载分词器 (Tokenizer)
 # 分词器负责将文本转换为模型可以理解的 token IDs
 tokenizer = AutoTokenizer.from_pretrained(
-    "/home/swq/Code/Qwen/models/Qwen/Qwen2.5-VL-7B-Instruct/", 
+    "/home/swq/Code/Qwen2.5-VL/models/Qwen/Qwen2.5-VL-7B-Instruct", 
     use_fast=False,                                              # 使用慢速分词器，更稳定
     trust_remote_code=True                                       # 信任远程代码，允许加载自定义模型代码
 )
 
 # 加载多模态处理器 (Processor)
 # 处理器能够同时处理文本和图像，将它们转换为模型输入格式
-processor = AutoProcessor.from_pretrained("/home/swq/Code/Qwen/models/Qwen/Qwen2.5-VL-7B-Instruct")
+processor = AutoProcessor.from_pretrained("/home/swq/Code/Qwen2.5-VL/models/Qwen/Qwen2.5-VL-7B-Instruct")
 
 # 加载预训练模型
 # Qwen2_5_VLForConditionalGeneration 是条件生成模型，根据给定条件生成文本
 model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-    "/home/swq/Code/Qwen/models/Qwen/Qwen2.5-VL-7B-Instruct/", 
+    "/home/swq/Code/Qwen2.5-VL/models/Qwen/Qwen2.5-VL-7B-Instruct", 
     device_map="auto",                  # 自动分配到可用GPU（受CUDA_VISIBLE_DEVICES限制）
     torch_dtype=torch.float32,          # 使用FP32精度，避免数值不稳定问题
     trust_remote_code=True,             # 信任远程代码
@@ -424,7 +395,7 @@ val_config = LoraConfig(
 )
 
 # 自动查找并加载最新的检查点
-import glob                                                      # 用于文件路径匹配
+import glob                                                         # 用于文件路径匹配
 checkpoint_dirs = glob.glob("./output/Qwen2.5-VL-7B/checkpoint-*")  # 查找所有检查点目录
 
 if checkpoint_dirs:
