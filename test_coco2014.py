@@ -117,7 +117,7 @@ for i, item in enumerate(test_dataset):
             {"type": "text", "text": "COCO Yes:"}
         ]
     }]
-    
+
     # 进行预测
     response = predict(messages, model, processor)
     print(f"  模型预测: {response}")
