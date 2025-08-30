@@ -25,6 +25,7 @@ mllm_data/
 *.jpg
 *.png
 *.pem
+*.mp4
 
 # venv
 .venv
