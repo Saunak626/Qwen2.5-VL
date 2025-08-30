@@ -135,7 +135,7 @@ class CocoDatasetProcessor:
 
 def main():
     """主函数"""
-    processor = CocoDatasetProcessor(max_data_number=15000)
+    processor = CocoDatasetProcessor(max_data_number=2000)
     
     try:
         success = processor.process_dataset()

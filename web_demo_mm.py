@@ -9,24 +9,6 @@ import re
 from argparse import ArgumentParser
 from threading import Thread
 
-def _setup_gpu():
-    """
-    提前解析GPU参数并设置CUDA_VISIBLE_DEVICES环境变量。
-    这必须在torch导入之前完成。
-    """
-    parser = ArgumentParser()
-    parser.add_argument('--gpu-id', type=str, default='3', help='指定使用的GPU ID')
-    parser.add_argument('--cpu-only', action='store_true', help='仅使用CPU')
-    args, _ = parser.parse_known_args()
-
-    if not args.cpu_only:
-        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
-        print(f"设置环境变量 CUDA_VISIBLE_DEVICES={args.gpu_id}，模型将加载到物理GPU {args.gpu_id}")
-    else:
-        print("将仅使用CPU运行")
-
-_setup_gpu()
-
 import gradio as gr
 import torch
 from qwen_vl_utils import process_vision_info
@@ -58,30 +40,33 @@ def _get_args():
                         help='Automatically launch the interface in a new tab on the default browser.')
     parser.add_argument('--server-port', type=int, default=7860, help='Demo server port.')
     parser.add_argument('--server-name', type=str, default='127.0.0.1', help='Demo server name.')
-    parser.add_argument('--gpu-id', type=str, default='3', help='指定使用的GPU ID (例如: 0,1,2,3 或 auto)')
+    parser.add_argument('--gpu', type=str, default='3', help='指定使用的GPU ID (例如: 0,1,2,3 或 auto)')
 
     args = parser.parse_args()
     return args
 
-
 def _load_model_processor(args):
+    # 设置GPU环境变量（必须在模型加载前完成）
     if args.cpu_only:
         device_map = 'cpu'
+        print("将仅使用CPU运行")
     else:
-        # 环境变量已在脚本顶部设置，因此'auto'会正确选择可见的GPU
+        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+        print(f"设置环境变量 CUDA_VISIBLE_DEVICES={args.gpu}，模型将加载到物理GPU {args.gpu}")
         device_map = 'auto'
-        
         
     # Check if flash-attn2 flag is enabled and load model accordingly
     if args.flash_attn2:
-        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(args.checkpoint_path,
-                                                                torch_dtype=torch.bfloat16,
-                                                                attn_implementation='flash_attention_2',
-                                                                device_map=device_map)
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            args.checkpoint_path, 
+            torch_dtype=torch.bfloat16,
+            attn_implementation='flash_attention_2',
+            device_map=device_map)
     else:
-        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(args.checkpoint_path, 
-                                                                torch_dtype=torch.bfloat16,
-                                                                device_map=device_map)
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            args.checkpoint_path, 
+            torch_dtype=torch.bfloat16, 
+            device_map=device_map)
 
     processor = AutoProcessor.from_pretrained(args.checkpoint_path)
     return model, processor
@@ -309,15 +294,10 @@ including hate speech, violence, pornography, deception, etc. \
         server_name=args.server_name,
     )
 
-
 def main():
     args = _get_args()
-    
-    # GPU环境变量已在脚本顶部设置，此处无需重复操作
-    
     model, processor = _load_model_processor(args)
     _launch_demo(args, model, processor)
-
 
 if __name__ == '__main__':
     main()

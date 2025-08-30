@@ -1,8 +1,5 @@
 """
-Qwen2.5-VL 视觉语言模型 LoRA 微调训练脚本
-
-此脚本用于在 COCO 数据集上微调 Qwen2.5-VL-7B 模型，使用 LoRA (Low-Rank Adaptation) 技术
-实现高效的参数更新，仅训练少量参数即可获得良好的微调效果。
+在 COCO 数据集上微调 Qwen2.5-VL-7B 模型
 
 主要功能：
 1. 加载预训练的 Qwen2.5-VL-7B 模型
@@ -40,15 +37,6 @@ from transformers import (
 import swanlab                           
 import json                                  
 
-# ================================ GPU 信息显示 ================================
-if torch.cuda.is_available():
-    print(f"使用GPU: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
-    print(f"CUDA可用, GPU数量: {torch.cuda.device_count()}")
-    for i in range(torch.cuda.device_count()):
-        total_memory = torch.cuda.get_device_properties(i).total_memory / 1024**3
-        print(f"  GPU {i}: {torch.cuda.get_device_name(i)}, 总显存: {total_memory:.1f} GB")
-else:
-    print("CUDA 不可用, 将使用 CPU 进行训练。")
 
 # ================================ 数据预处理函数 ================================
 def process_func(example):
@@ -337,10 +325,7 @@ args = TrainingArguments(
     report_to="none",                            # 不向外部服务报告（使用SwanLab代替）
 )
         
-# ================================ 实验监控配置 ================================
-# SwanLab 是一个机器学习实验跟踪平台，用于监控训练过程和结果
-# 提供损失曲线、学习率变化、梯度分析等可视化功能
-
+# ============================== SwanLab 实验监控配置 ==============================
 swanlab_callback = SwanLabCallback(
     project="Qwen2.5-VL-finetune",                  # 项目名称：在SwanLab平台上的项目标识
     experiment_name="qwen2.5-VL-coco2014",          # 实验名称：当前实验的标识
@@ -356,10 +341,7 @@ swanlab_callback = SwanLabCallback(
     },
 )
 
-# ================================ 训练器配置 ================================
-# Trainer 是 HuggingFace Transformers 的训练器，集成了训练循环、验证、保存等功能
-# 提供了统一的接口来管理整个训练过程
-
+# ================================ Trainer 配置 ================================
 trainer = Trainer(
     model=peft_model,                               # 要训练的模型（应用了LoRA的PEFT模型）
     args=args,                                      # 训练参数配置
@@ -373,8 +355,7 @@ trainer = Trainer(
     callbacks=[swanlab_callback],                   # 回调函数列表：包含SwanLab监控
 )
 
-# ================================ 开始训练 ================================
-# 启动模型训练过程
+# ================================ 启动微调 ================================
 # 训练过程将按照配置的参数进行，包括前向传播、损失计算、反向传播、参数更新等
 print("开始LoRA微调训练...")
 trainer.train()

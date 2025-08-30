@@ -4,14 +4,17 @@ __pycache__/
 build/
 dist/
 wheels/
+
 # 模型
 models/
 Qwen2.5-VL-sft-final/
+
 # 数据集
 cache/
 .cache/
 coco_2014_caption/
 Data/
+
 # 输出
 saves/
 output/
