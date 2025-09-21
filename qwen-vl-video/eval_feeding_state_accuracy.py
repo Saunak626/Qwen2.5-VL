@@ -64,8 +64,38 @@ def load_predictions(file_path: str) -> List[Tuple[str, str]]:
     return predictions
 
 
-def calculate_accuracy(predictions: List[Tuple[str, str]]) -> Dict:
-    """计算准确度统计和详细分类指标"""
+def load_dataset_mapping(dataset_path: str) -> Dict[int, str]:
+    """加载原始数据集信息，建立样本索引到视频文件的映射关系"""
+    if not dataset_path or not os.path.exists(dataset_path):
+        print(f"警告: 数据集路径无效或不存在: {dataset_path}")
+        return {}
+    
+    index_to_video = {}
+    
+    try:
+        with open(dataset_path, 'r', encoding='utf-8') as f:
+            for line_num, line in enumerate(f):
+                try:
+                    data = json.loads(line.strip())
+                    # 假设数据集中包含 video_file 字段
+                    video_file = data.get('video_file', '')
+                    if video_file:
+                        index_to_video[line_num] = video_file
+                except json.JSONDecodeError:
+                    print(f"警告: 数据集第{line_num + 1}行JSON格式错误")
+                    continue
+        
+        print(f"📁 成功加载数据集映射: {len(index_to_video)} 个样本")
+        
+    except Exception as e:
+        print(f"错误: 加载数据集失败 - {e}")
+        return {}
+    
+    return index_to_video
+
+
+def calculate_accuracy(predictions: List[Tuple[str, str]], dataset_mapping: Dict[int, str] = None) -> Dict:
+    """计算准确度统计和详细分类指标，并记录错误样本信息"""
     if not predictions:
         return {"error": "没有有效的预测数据"}
 
@@ -74,16 +104,26 @@ def calculate_accuracy(predictions: List[Tuple[str, str]]) -> Dict:
     total = len(predictions)
     overall_accuracy = correct / total
 
-    # 统计各类别准确度
+    # 统计各类别准确度和错误样本
     class_stats = defaultdict(lambda: {"correct": 0, "total": 0})
     confusion_matrix_dict = defaultdict(lambda: defaultdict(int))
+    error_samples = []  # 记录错误样本信息
 
-    for pred, label in predictions:
+    for idx, (pred, label) in enumerate(predictions):
         class_stats[label]["total"] += 1
         confusion_matrix_dict[label][pred] += 1
 
         if pred == label:
             class_stats[label]["correct"] += 1
+        else:
+            # 记录错误样本信息
+            error_info = {
+                "sample_index": idx,
+                "predicted_state": pred,
+                "true_state": label,
+                "video_file": dataset_mapping.get(idx, "未知") if dataset_mapping else "未提供数据集映射"
+            }
+            error_samples.append(error_info)
 
     # 计算各类别准确度
     class_accuracy = {}
@@ -103,7 +143,9 @@ def calculate_accuracy(predictions: List[Tuple[str, str]]) -> Dict:
         "class_stats": dict(class_stats),
         "confusion_matrix": dict(confusion_matrix_dict),
         "prediction_distribution": dict(pred_counter),
-        "label_distribution": dict(label_counter)
+        "label_distribution": dict(label_counter),
+        "error_samples": error_samples,
+        "error_count": len(error_samples)
     }
 
     # 如果 scikit-learn 可用，计算详细分类指标
@@ -282,7 +324,38 @@ def save_results(results: Dict, output_file: str):
     """保存结果到JSON文件"""
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
-    print(f"\n💾 详细结果已保存到: {output_file}")
+    print(f"结果已保存到: {output_file}")
+
+
+def save_error_samples(error_samples: List[Dict], output_file: str):
+    """保存错误样本信息到文件"""
+    if not error_samples:
+        print("没有错误样本需要保存")
+        return
+    
+    # 保存为JSON格式
+    error_output_file = output_file.replace('.json', '_error_samples.json')
+    with open(error_output_file, 'w', encoding='utf-8') as f:
+        json.dump(error_samples, f, ensure_ascii=False, indent=2)
+    
+    # 同时保存为易读的文本格式
+    text_output_file = output_file.replace('.json', '_error_samples.txt')
+    with open(text_output_file, 'w', encoding='utf-8') as f:
+        f.write(f"错误样本详细信息 (共 {len(error_samples)} 个)\n")
+        f.write("=" * 60 + "\n\n")
+        
+        for i, error in enumerate(error_samples, 1):
+            f.write(f"错误样本 #{i}:\n")
+            f.write(f"  样本索引: {error['sample_index']}\n")
+            f.write(f"  预测状态: {error['predicted_state']}\n")
+            f.write(f"  真实状态: {error['true_state']}\n")
+            f.write(f"  源视频文件: {error['video_file']}\n")
+            f.write("-" * 40 + "\n")
+    
+    print(f"错误样本信息已保存到:")
+    print(f"  JSON格式: {error_output_file}")
+    print(f"  文本格式: {text_output_file}")
+    print(f"  错误样本总数: {len(error_samples)}")
 
 
 def main():
@@ -296,6 +369,8 @@ def main():
     
     parser.add_argument("--output_file", type=str, default=None,
                        help="保存详细结果的JSON文件路径（可选）")
+    parser.add_argument("--dataset_path", type=str, default=None,
+                       help="原始数据集路径，用于追踪错误样本的源视频文件")
     
     args = parser.parse_args()
     
@@ -312,12 +387,22 @@ def main():
     
     print(f"📁 读取文件: {input_file}")
     
+    # 加载原始数据集映射（如果提供了数据集路径）
+    dataset_mapping = None
+    if args.dataset_path:
+        print(f"📁 加载数据集映射: {args.dataset_path}")
+        dataset_mapping = load_dataset_mapping(args.dataset_path)
+    
     # 加载和分析数据
     predictions = load_predictions(input_file)
-    results = calculate_accuracy(predictions)
+    results = calculate_accuracy(predictions, dataset_mapping)
     
     # 打印结果
     print_results(results)
+    
+    # 保存错误样本信息（如果有错误样本且提供了输出文件路径）
+    if args.output_file and results.get('error_samples'):
+        save_error_samples(results['error_samples'], args.output_file)
     
     # 保存结果（如果指定了输出文件）
     if args.output_file:
