@@ -1,0 +1,24 @@
+加载测试数据...
+加载预测结果...
+生成视频错误统计CSV报告: video_error_stats_with_action.csv
+
+统计完成!
+- 源视频数量: 68
+- 总样本数: 7412
+- 总错误数: 3458
+- 总体错误率: 46.65%
+- CSV报告已保存到: video_error_stats_with_action.csv
+
+各标签类别总体错误率:
+- 饱腹: 783/2021 (38.74%)
+- 中性: 749/1798 (41.66%)
+- 微饿: 962/1553 (61.94%)
+- 饥饿: 964/2040 (47.25%)
+Traceback (most recent call last):
+  File "/home/swq/Code/Qwen2.5-VL/qwen-vl-video/generate_video_error_stats.py", line 321, in <module>
+    main()
+  File "/home/swq/Code/Qwen2.5-VL/qwen-vl-video/generate_video_error_stats.py", line 318, in main
+    generate_video_error_stats(test_data, predictions, args.output_path, args.action_analysis_output)
+  File "/home/swq/Code/Qwen2.5-VL/qwen-vl-video/generate_video_error_stats.py", line 288, in generate_video_error_stats
+    generate_action_analysis_csv(error_samples, action_analysis_output)
+NameError: name 'generate_action_analysis_csv' is not defined
