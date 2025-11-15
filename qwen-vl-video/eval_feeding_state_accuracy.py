@@ -198,11 +198,11 @@ def calculate_accuracy(predictions: List[Tuple[str, str]], dataset_mapping: Dict
 
         # 计算宏平均和加权平均
         macro_precision, macro_recall, macro_f1, _ = precision_recall_fscore_support(
-            y_true, y_pred, average='macro', zero_division=0
+            y_true, y_pred, labels=labels, average='macro', zero_division=0
         )
 
         weighted_precision, weighted_recall, weighted_f1, _ = precision_recall_fscore_support(
-            y_true, y_pred, average='weighted', zero_division=0
+            y_true, y_pred, labels=labels, average='weighted', zero_division=0
         )
 
         # 生成分类报告
@@ -314,11 +314,11 @@ def calculate_binary_accuracy(predictions: List[Tuple[str, str]]) -> Dict:
 
         # 计算宏平均和加权平均
         macro_precision, macro_recall, macro_f1, _ = precision_recall_fscore_support(
-            y_true, y_pred, average='macro', zero_division=0
+            y_true, y_pred, labels=labels, average='macro', zero_division=0
         )
 
         weighted_precision, weighted_recall, weighted_f1, _ = precision_recall_fscore_support(
-            y_true, y_pred, average='weighted', zero_division=0
+            y_true, y_pred, labels=labels, average='weighted', zero_division=0
         )
 
         # 添加详细指标到结果
@@ -424,11 +424,11 @@ def calculate_ternary_accuracy(predictions: List[Tuple[str, str]]) -> Dict:
 
         # 计算宏平均和加权平均
         macro_precision, macro_recall, macro_f1, _ = precision_recall_fscore_support(
-            y_true, y_pred, average='macro', zero_division=0
+            y_true, y_pred, labels=labels, average='macro', zero_division=0
         )
 
         weighted_precision, weighted_recall, weighted_f1, _ = precision_recall_fscore_support(
-            y_true, y_pred, average='weighted', zero_division=0
+            y_true, y_pred, labels=labels, average='weighted', zero_division=0
         )
 
         # 添加详细指标到结果
