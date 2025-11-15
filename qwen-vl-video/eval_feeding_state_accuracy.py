@@ -94,6 +94,40 @@ def load_dataset_mapping(dataset_path: str) -> Dict[int, str]:
     return index_to_video
 
 
+def map_to_binary_class(state: str) -> str:
+    """将四分类标签映射到二分类标签
+
+    Args:
+        state: 四分类标签 ("饱腹", "中性", "微饿", "饥饿")
+
+    Returns:
+        二分类标签 ("饱腹类", "饥饿类")
+    """
+    if state in ["饱腹", "中性"]:
+        return "饱腹类"
+    elif state in ["微饿", "饥饿"]:
+        return "饥饿类"
+    else:
+        return state  # 保留未知标签
+
+
+def map_to_ternary_class(state: str) -> str:
+    """将四分类标签映射到三分类标签
+
+    Args:
+        state: 四分类标签 ("饱腹", "中性", "微饿", "饥饿")
+
+    Returns:
+        三分类标签 ("饱腹", "中性", "饥饿类")
+    """
+    if state in ["饱腹", "中性"]:
+        return state  # 保持原标签
+    elif state in ["微饿", "饥饿"]:
+        return "饥饿类"
+    else:
+        return state  # 保留未知标签
+
+
 def calculate_accuracy(predictions: List[Tuple[str, str]], dataset_mapping: Dict[int, str] = None) -> Dict:
     """计算准确度统计和详细分类指标，并记录错误样本信息"""
     if not predictions:
@@ -200,6 +234,225 @@ def calculate_accuracy(predictions: List[Tuple[str, str]], dataset_mapping: Dict
                 }
             },
             "classification_report": classification_rep
+        })
+
+    return results
+
+
+def calculate_binary_accuracy(predictions: List[Tuple[str, str]]) -> Dict:
+    """计算二分类准确度统计和详细分类指标
+
+    将四分类结果映射为二分类:
+    - 饱腹类: "饱腹" + "中性"
+    - 饥饿类: "微饿" + "饥饿"
+
+    Args:
+        predictions: 四分类预测结果列表 [(predict_state, label_state), ...]
+
+    Returns:
+        包含二分类评估指标的字典
+    """
+    if not predictions:
+        return {"error": "没有有效的预测数据"}
+
+    # 将四分类映射为二分类
+    binary_predictions = [
+        (map_to_binary_class(pred), map_to_binary_class(label))
+        for pred, label in predictions
+    ]
+
+    # 统计总体准确度
+    correct = sum(1 for pred, label in binary_predictions if pred == label)
+    total = len(binary_predictions)
+    overall_accuracy = correct / total
+
+    # 统计各类别准确度
+    class_stats = defaultdict(lambda: {"correct": 0, "total": 0})
+    confusion_matrix_dict = defaultdict(lambda: defaultdict(int))
+
+    for pred, label in binary_predictions:
+        class_stats[label]["total"] += 1
+        confusion_matrix_dict[label][pred] += 1
+
+        if pred == label:
+            class_stats[label]["correct"] += 1
+
+    # 计算各类别准确度
+    class_accuracy = {}
+    for class_name, stats in class_stats.items():
+        class_accuracy[class_name] = stats["correct"] / stats["total"]
+
+    # 统计预测分布
+    pred_counter = Counter(pred for pred, _ in binary_predictions)
+    label_counter = Counter(label for _, label in binary_predictions)
+
+    # 基础结果
+    results = {
+        "overall_accuracy": overall_accuracy,
+        "correct_predictions": correct,
+        "total_predictions": total,
+        "class_accuracy": class_accuracy,
+        "class_stats": dict(class_stats),
+        "confusion_matrix": dict(confusion_matrix_dict),
+        "prediction_distribution": dict(pred_counter),
+        "label_distribution": dict(label_counter)
+    }
+
+    # 如果 scikit-learn 可用,计算详细分类指标
+    if SKLEARN_AVAILABLE:
+        # 准备数据
+        y_true = [label for _, label in binary_predictions]
+        y_pred = [pred for pred, _ in binary_predictions]
+
+        # 定义标签顺序
+        labels = ["饱腹类", "饥饿类"]
+
+        # 计算详细指标
+        precision, recall, f1, support = precision_recall_fscore_support(
+            y_true, y_pred, labels=labels, average=None, zero_division=0
+        )
+
+        # 计算宏平均和加权平均
+        macro_precision, macro_recall, macro_f1, _ = precision_recall_fscore_support(
+            y_true, y_pred, average='macro', zero_division=0
+        )
+
+        weighted_precision, weighted_recall, weighted_f1, _ = precision_recall_fscore_support(
+            y_true, y_pred, average='weighted', zero_division=0
+        )
+
+        # 添加详细指标到结果
+        results.update({
+            "detailed_metrics": {
+                "per_class": {
+                    labels[i]: {
+                        "precision": float(precision[i]),
+                        "recall": float(recall[i]),
+                        "f1_score": float(f1[i]),
+                        "support": int(support[i])
+                    } for i in range(len(labels))
+                },
+                "macro_avg": {
+                    "precision": float(macro_precision),
+                    "recall": float(macro_recall),
+                    "f1_score": float(macro_f1)
+                },
+                "weighted_avg": {
+                    "precision": float(weighted_precision),
+                    "recall": float(weighted_recall),
+                    "f1_score": float(weighted_f1)
+                }
+            }
+        })
+
+    return results
+
+
+def calculate_ternary_accuracy(predictions: List[Tuple[str, str]]) -> Dict:
+    """计算三分类准确度统计和详细分类指标
+
+    将四分类结果映射为三分类:
+    - 饱腹: "饱腹" (保持不变)
+    - 中性: "中性" (保持不变)
+    - 饥饿类: "微饿" + "饥饿"
+
+    Args:
+        predictions: 四分类预测结果列表 [(predict_state, label_state), ...]
+
+    Returns:
+        包含三分类评估指标的字典
+    """
+    if not predictions:
+        return {"error": "没有有效的预测数据"}
+
+    # 将四分类映射为三分类
+    ternary_predictions = [
+        (map_to_ternary_class(pred), map_to_ternary_class(label))
+        for pred, label in predictions
+    ]
+
+    # 统计总体准确度
+    correct = sum(1 for pred, label in ternary_predictions if pred == label)
+    total = len(ternary_predictions)
+    overall_accuracy = correct / total
+
+    # 统计各类别准确度
+    class_stats = defaultdict(lambda: {"correct": 0, "total": 0})
+    confusion_matrix_dict = defaultdict(lambda: defaultdict(int))
+
+    for pred, label in ternary_predictions:
+        class_stats[label]["total"] += 1
+        confusion_matrix_dict[label][pred] += 1
+
+        if pred == label:
+            class_stats[label]["correct"] += 1
+
+    # 计算各类别准确度
+    class_accuracy = {}
+    for class_name, stats in class_stats.items():
+        class_accuracy[class_name] = stats["correct"] / stats["total"]
+
+    # 统计预测分布
+    pred_counter = Counter(pred for pred, _ in ternary_predictions)
+    label_counter = Counter(label for _, label in ternary_predictions)
+
+    # 基础结果
+    results = {
+        "overall_accuracy": overall_accuracy,
+        "correct_predictions": correct,
+        "total_predictions": total,
+        "class_accuracy": class_accuracy,
+        "class_stats": dict(class_stats),
+        "confusion_matrix": dict(confusion_matrix_dict),
+        "prediction_distribution": dict(pred_counter),
+        "label_distribution": dict(label_counter)
+    }
+
+    # 如果 scikit-learn 可用,计算详细分类指标
+    if SKLEARN_AVAILABLE:
+        # 准备数据
+        y_true = [label for _, label in ternary_predictions]
+        y_pred = [pred for pred, _ in ternary_predictions]
+
+        # 定义标签顺序
+        labels = ["饱腹", "中性", "饥饿类"]
+
+        # 计算详细指标
+        precision, recall, f1, support = precision_recall_fscore_support(
+            y_true, y_pred, labels=labels, average=None, zero_division=0
+        )
+
+        # 计算宏平均和加权平均
+        macro_precision, macro_recall, macro_f1, _ = precision_recall_fscore_support(
+            y_true, y_pred, average='macro', zero_division=0
+        )
+
+        weighted_precision, weighted_recall, weighted_f1, _ = precision_recall_fscore_support(
+            y_true, y_pred, average='weighted', zero_division=0
+        )
+
+        # 添加详细指标到结果
+        results.update({
+            "detailed_metrics": {
+                "per_class": {
+                    labels[i]: {
+                        "precision": float(precision[i]),
+                        "recall": float(recall[i]),
+                        "f1_score": float(f1[i]),
+                        "support": int(support[i])
+                    } for i in range(len(labels))
+                },
+                "macro_avg": {
+                    "precision": float(macro_precision),
+                    "recall": float(macro_recall),
+                    "f1_score": float(macro_f1)
+                },
+                "weighted_avg": {
+                    "precision": float(weighted_precision),
+                    "recall": float(weighted_recall),
+                    "f1_score": float(weighted_f1)
+                }
+            }
         })
 
     return results
@@ -320,6 +573,184 @@ def print_detailed_metrics(results: Dict):
             print(f"  所有类别表现良好 (F1 > 0.9)")
 
 
+def print_binary_metrics(results: Dict):
+    """打印二分类评估结果"""
+    if "error" in results:
+        print(f"错误: {results['error']}")
+        return
+
+    print("\n" + "=" * 80)
+    print("二分类评估结果 (饱腹类 vs 饥饿类)")
+    print("=" * 80)
+
+    # 总体准确度
+    print(f"\n📊 总体准确度: {results['overall_accuracy']:.4f} "
+          f"({results['correct_predictions']}/{results['total_predictions']})")
+
+    # 各类别准确度
+    print(f"\n📈 各类别准确度:")
+    binary_states = ["饱腹类", "饥饿类"]
+    for state in binary_states:
+        if state in results['class_accuracy']:
+            acc = results['class_accuracy'][state]
+            stats = results['class_stats'][state]
+            print(f"  {state:>6}: {acc:.4f} ({stats['correct']}/{stats['total']})")
+
+    # 混淆矩阵
+    print(f"\n🔄 二分类混淆矩阵 (真实 → 预测):")
+    print(f"{'':>8}", end="")
+    for state in binary_states:
+        print(f"{state:>8}", end="")
+    print()
+
+    for true_state in binary_states:
+        if true_state in results['confusion_matrix']:
+            print(f"{true_state:>8}", end="")
+            for pred_state in binary_states:
+                count = results['confusion_matrix'][true_state].get(pred_state, 0)
+                print(f"{count:>8}", end="")
+            print()
+
+    # 分布统计
+    print(f"\n📋 标签分布:")
+    for state in binary_states:
+        count = results['label_distribution'].get(state, 0)
+        ratio = count / results['total_predictions']
+        print(f"  {state:>6}: {count:>4} ({ratio:.2%})")
+
+    print(f"\n📋 预测分布:")
+    for state in binary_states:
+        count = results['prediction_distribution'].get(state, 0)
+        ratio = count / results['total_predictions']
+        print(f"  {state:>6}: {count:>4} ({ratio:.2%})")
+
+    # 详细分类指标(如果可用)
+    if "detailed_metrics" in results and SKLEARN_AVAILABLE:
+        metrics = results["detailed_metrics"]
+
+        print("\n" + "=" * 80)
+        print("📊 二分类详细指标")
+        print("=" * 80)
+
+        # 每个类别的详细指标
+        print(f"\n📈 各类别详细指标:")
+        print(f"{'类别':>8} {'精确率':>10} {'召回率':>10} {'F1分数':>10} {'支持度':>10}")
+        print("-" * 60)
+
+        for state in binary_states:
+            if state in metrics["per_class"]:
+                m = metrics["per_class"][state]
+                print(f"{state:>8} {m['precision']:>10.4f} {m['recall']:>10.4f} "
+                      f"{m['f1_score']:>10.4f} {m['support']:>10.0f}")
+
+        print("-" * 60)
+
+        # 宏平均
+        macro = metrics["macro_avg"]
+        print(f"{'宏平均':>8} {macro['precision']:>10.4f} {macro['recall']:>10.4f} "
+              f"{macro['f1_score']:>10.4f} {'':>10}")
+
+        # 加权平均
+        weighted = metrics["weighted_avg"]
+        print(f"{'加权平均':>8} {weighted['precision']:>10.4f} {weighted['recall']:>10.4f} "
+              f"{weighted['f1_score']:>10.4f} {'':>10}")
+
+        # 总体指标摘要
+        print(f"\n🎯 二分类总体指标摘要:")
+        print(f"  总体准确度: {results['overall_accuracy']:.4f}")
+        print(f"  宏平均 F1: {macro['f1_score']:.4f}")
+        print(f"  加权平均 F1: {weighted['f1_score']:.4f}")
+
+
+def print_ternary_metrics(results: Dict):
+    """打印三分类评估结果"""
+    if "error" in results:
+        print(f"错误: {results['error']}")
+        return
+
+    print("\n" + "=" * 80)
+    print("三分类评估结果 (饱腹 vs 中性 vs 饥饿类)")
+    print("=" * 80)
+
+    # 总体准确度
+    print(f"\n📊 总体准确度: {results['overall_accuracy']:.4f} "
+          f"({results['correct_predictions']}/{results['total_predictions']})")
+
+    # 各类别准确度
+    print(f"\n📈 各类别准确度:")
+    ternary_states = ["饱腹", "中性", "饥饿类"]
+    for state in ternary_states:
+        if state in results['class_accuracy']:
+            acc = results['class_accuracy'][state]
+            stats = results['class_stats'][state]
+            print(f"  {state:>6}: {acc:.4f} ({stats['correct']}/{stats['total']})")
+
+    # 混淆矩阵
+    print(f"\n🔄 三分类混淆矩阵 (真实 → 预测):")
+    print(f"{'':>8}", end="")
+    for state in ternary_states:
+        print(f"{state:>8}", end="")
+    print()
+
+    for true_state in ternary_states:
+        if true_state in results['confusion_matrix']:
+            print(f"{true_state:>8}", end="")
+            for pred_state in ternary_states:
+                count = results['confusion_matrix'][true_state].get(pred_state, 0)
+                print(f"{count:>8}", end="")
+            print()
+
+    # 分布统计
+    print(f"\n📋 标签分布:")
+    for state in ternary_states:
+        count = results['label_distribution'].get(state, 0)
+        ratio = count / results['total_predictions']
+        print(f"  {state:>6}: {count:>4} ({ratio:.2%})")
+
+    print(f"\n📋 预测分布:")
+    for state in ternary_states:
+        count = results['prediction_distribution'].get(state, 0)
+        ratio = count / results['total_predictions']
+        print(f"  {state:>6}: {count:>4} ({ratio:.2%})")
+
+    # 详细分类指标(如果可用)
+    if "detailed_metrics" in results and SKLEARN_AVAILABLE:
+        metrics = results["detailed_metrics"]
+
+        print("\n" + "=" * 80)
+        print("📊 三分类详细指标")
+        print("=" * 80)
+
+        # 每个类别的详细指标
+        print(f"\n📈 各类别详细指标:")
+        print(f"{'类别':>8} {'精确率':>10} {'召回率':>10} {'F1分数':>10} {'支持度':>10}")
+        print("-" * 60)
+
+        for state in ternary_states:
+            if state in metrics["per_class"]:
+                m = metrics["per_class"][state]
+                print(f"{state:>8} {m['precision']:>10.4f} {m['recall']:>10.4f} "
+                      f"{m['f1_score']:>10.4f} {m['support']:>10.0f}")
+
+        print("-" * 60)
+
+        # 宏平均
+        macro = metrics["macro_avg"]
+        print(f"{'宏平均':>8} {macro['precision']:>10.4f} {macro['recall']:>10.4f} "
+              f"{macro['f1_score']:>10.4f} {'':>10}")
+
+        # 加权平均
+        weighted = metrics["weighted_avg"]
+        print(f"{'加权平均':>8} {weighted['precision']:>10.4f} {weighted['recall']:>10.4f} "
+              f"{weighted['f1_score']:>10.4f} {'':>10}")
+
+        # 总体指标摘要
+        print(f"\n🎯 三分类总体指标摘要:")
+        print(f"  总体准确度: {results['overall_accuracy']:.4f}")
+        print(f"  宏平均 F1: {macro['f1_score']:.4f}")
+        print(f"  加权平均 F1: {weighted['f1_score']:.4f}")
+
+
 def save_results(results: Dict, output_file: str):
     """保存结果到JSON文件"""
     with open(output_file, 'w', encoding='utf-8') as f:
@@ -395,18 +826,41 @@ def main():
     
     # 加载和分析数据
     predictions = load_predictions(input_file)
+
+    # 四分类评估
     results = calculate_accuracy(predictions, dataset_mapping)
-    
-    # 打印结果
+
+    # 打印四分类结果
     print_results(results)
-    
+
+    # 二分类评估
+    binary_results = calculate_binary_accuracy(predictions)
+
+    # 打印二分类结果
+    print_binary_metrics(binary_results)
+
+    # 三分类评估
+    ternary_results = calculate_ternary_accuracy(predictions)
+
+    # 打印三分类结果
+    print_ternary_metrics(ternary_results)
+
     # 保存错误样本信息（如果有错误样本且提供了输出文件路径）
     if args.output_file and results.get('error_samples'):
         save_error_samples(results['error_samples'], args.output_file)
-    
+
     # 保存结果（如果指定了输出文件）
     if args.output_file:
+        # 保存四分类结果
         save_results(results, args.output_file)
+
+        # 保存二分类结果
+        binary_output_file = args.output_file.replace('.json', '_binary.json')
+        save_results(binary_results, binary_output_file)
+
+        # 保存三分类结果
+        ternary_output_file = args.output_file.replace('.json', '_ternary.json')
+        save_results(ternary_results, ternary_output_file)
 
 
 if __name__ == "__main__":
